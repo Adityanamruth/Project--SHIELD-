@@ -12,16 +12,15 @@ MIN_CHARACTERS = 2
 MAX_CHARACTERS = 500
 
 # --- SAMPLE TEXTS FOR TESTING ---
-# A diverse list of samples to quickly test different risk levels.
 SAMPLE_TEXTS = [
-    "I'm so excited about the new project! It looks brilliant and I think we're going to achieve wonderful things together. This is a genuinely positive and supportive message.", # 1. Safe/Positive
-    "You are a complete idiot, a worthless failure, and you should just shut up and quit this platform right now. You are an absolute disgrace.", # 2. Insulting/High Risk Lexicon
-    "Your plan is bad. Your execution is poor. I hope you get doxxed and exposed for who you really are. I will find you.", # 3. Severe Threat/Override Lexicon
-    "This is such a stupid, pathetic, and frankly awful post. Go back to school, you ignorant fool, you suck.", # 4. Mixed Insult/Toxic
-    "The weather today is beautiful, and I really appreciate the hard work everyone put into the presentation. Good job! Keep up the excellent work.", # 5. Safe/Positive
-    "I will find you and attack you. You will regret every word you ever wrote here. This is a severe threat to your well-being.", # 6. Explicit Threat/Severe
-    "Get your disgusting, trashy comments out of this chat, you absolute moron. You are a joke. You're completely pathetic.", # 7. Obscene/Insult
-    "The result was crap, but you are still a brilliant programmer and I know you can fix this problem easily.", # 8. Mixed Negative/Positive (FP Prevention Test)
+    "I'm so excited about the new project! It looks brilliant and I think we're going to achieve wonderful things together. This is a genuinely positive and supportive message.",
+    "You are a complete idiot, a worthless failure, and you should just shut up and quit this platform right now. You are an absolute disgrace.",
+    "Your plan is bad. Your execution is poor. I hope you get doxxed and exposed for who you really are. I will find you.",
+    "This is such a stupid, pathetic, and frankly awful post. Go back to school, you ignorant fool, you suck.",
+    "The weather today is beautiful, and I really appreciate the hard work everyone put into the presentation. Good job! Keep up the excellent work.",
+    "I will find you and attack you. You will regret every word you ever wrote here. This is a severe threat to your well-being.",
+    "Get your disgusting, trashy comments out of this chat, you absolute moron. You are a joke. You're completely pathetic.",
+    "The result was crap, but you are still a brilliant programmer and I know you can fix this problem easily.",
 ]
 
 # --- Model Loading & Caching ---
@@ -29,7 +28,6 @@ SAMPLE_TEXTS = [
 def load_model():
     """Load and cache HuggingFace toxic-bert model pipeline."""
     try:
-        # Using a proven deep learning model for foundational text classification
         clf = pipeline("text-classification", model="unitary/toxic-bert", return_all_scores=True, trust_remote_code=False)
         return clf
     except Exception as e:
@@ -39,20 +37,19 @@ def load_model():
 classifier = load_model()
 
 # --- HYBRID LEXICON DEFINITION ---
-# This is the core of the Rule-Based Engine, providing weighted adjustments.
 LEXICON_RISK = {
     "SEVERE_TOXIC": {
         "words": ["kill", "doxx", "doxxed", "dox", "doxed", "cyberstalking", "stalking", "stalker", 
                   "threaten", "threat", "suicide", "k-y-s", "kys", "kill yourself", "die",
                   "rape", "r-a-p-e", "murder", "assault", "attack", "harm you", "hurt you",
                   "find you", "come after", "destroy you", "end you"],
-        "weight": 0.35 # High weight ensures an immediate, massive boost or override
+        "weight": 0.35
     },
     "IDENTITY_HATE": {
         "words": ["do not belong here", "not welcome", "your kind", "that kind of background",
                   "those people", "go back", "get out", "shouldn't be allowed", "stay away",
                   "displace", "foreign", "illegal"],
-        "weight": 0.25 # Strong boost for subtle hate speech/exclusion
+        "weight": 0.25
     },
     "INSULT": {
         "words": ["idiot", "stupid", "dumb", "ugly", "useless", "worthless", "loser", "failure", 
@@ -69,7 +66,7 @@ LEXICON_RISK = {
         "words": ["amazing", "brilliant", "wonderful", "excellent", "respect", "support", "kind", 
                   "fantastic", "friendly", "awesome", "help", "great", "love", "beautiful",
                   "appreciate", "thank", "good", "nice", "perfect"],
-        "weight": -0.20 # Negative weight for suppressing False Positives (FP Prevention)
+        "weight": -0.20
     }
 }
 
@@ -88,30 +85,24 @@ def map_label_to_category(label: str) -> str:
     return mapping.get(label, label.title())
 
 def get_safety_message(scores: list, summary: dict) -> tuple[str, str, str]:
-    """
-    Assesses overall safety based on hybrid scores and lexicon data.
-    This function applies the final decision thresholds.
-    """
+    """Assesses overall safety based on hybrid scores and lexicon data."""
     if not scores:
         return "N/A", "Cannot analyze empty results.", "info"
     
-    # 1. CRITICAL OVERRIDE: Check for severe lexicon hits first (Zero False Negatives for Threats)
+    # Check for severe lexicon hits first
     if summary.get("severe_lexicon_hit"):
         triggered_cat = summary.get('triggered_category', 'unknown').replace('_', ' ').title()
         risk_msg = "🚨 **EXTREME RISK (Lexicon Override)**"
         msg = f"{risk_msg} | Critical threat word detected: **{triggered_cat}**"
         return "🛑 **THREAT DETECTED**", msg, "error"
     
-    # 2. Hybrid Score Assessment
     top = scores[0]
     top_label = top["label"].lower().replace("label_", "")
     top_score = top["score"]
     
-    # Low risk threshold (0.40) - Content is considered Safe
     if top_score < 0.40:
         return "✅ **Content is Safe**", "This message is classified as non-toxic.", "success"
     
-    # High risk categories (Threat, Severe, Hate)
     if top_label in ["severe_toxic", "threat", "identity_hate"]:
         if top_score > 0.70:
             risk_msg = "🚨 **EXTREME RISK**"
@@ -120,7 +111,6 @@ def get_safety_message(scores: list, summary: dict) -> tuple[str, str, str]:
         msg = f"{risk_msg} | Detected **{map_label_to_category(top_label)}** with {round(top_score*100)}% confidence."
         return "🛑 **THREAT DETECTED**", msg, "error"
     
-    # Medium risk categories (Insult, Obscene, Toxic)
     if top_score >= 0.40:
         if top_score >= 0.60:
             risk_msg = "🚨 **HIGH RISK**"
@@ -134,65 +124,60 @@ def get_safety_message(scores: list, summary: dict) -> tuple[str, str, str]:
     return "✅ **Content is Safe**", "This message seems safe.", "success"
 
 def get_lexicon_score_adjustment(text: str, scores: list) -> tuple[list, dict]:
-    """
-    Applies lexicon-based adjustments to the BERT scores (the Hybrid part).
-    This function boosts scores for risky words and suppresses scores for positive words.
-    """
+    """Applies lexicon-based adjustments to the BERT scores."""
     norm_text = text.lower()
     summary = {
         "total_adjustment": 0.0,
         "triggered_category": "unknown",
         "severe_lexicon_hit": False,
-        "detected_words": []
+        "detected_words": [],
+        "risk_word_count": 0,
+        "positive_word_count": 0
     }
     
     adjustment = 0.0
     triggered_category = "unknown"
     max_weight = 0.0
     
-    # Calculate the total adjustment and find the most severe triggered category
+    # Calculate adjustments and track detected words
     for key, data in LEXICON_RISK.items():
         for word in data["words"]:
-            # Use regex word boundaries (\b) for precise matching, avoiding partial word matches
             pattern = r'\b' + re.escape(word) + r'\b' if len(word.split()) == 1 else re.escape(word)
             if re.search(pattern, norm_text):
                 adjustment += data["weight"]
                 summary["detected_words"].append(word)
                 
-                # Track the highest risk category hit for targeted boosting
-                if data["weight"] > 0 and data["weight"] > max_weight:
-                    max_weight = data["weight"]
-                    triggered_category = key.lower()
-                    if key == "SEVERE_TOXIC":
-                        summary["severe_lexicon_hit"] = True
+                if data["weight"] > 0:  # Risk word
+                    summary["risk_word_count"] += 1
+                    if data["weight"] > max_weight:
+                        max_weight = data["weight"]
+                        triggered_category = key.lower()
+                        if key == "SEVERE_TOXIC":
+                            summary["severe_lexicon_hit"] = True
+                else:  # Positive word
+                    summary["positive_word_count"] += 1
     
     summary["total_adjustment"] = adjustment
     summary["triggered_category"] = triggered_category
     
-    # Apply the calculated adjustment to the BERT scores
+    # Apply adjustments to scores
     adjusted_scores = []
     for item in scores:
         label = item["label"].lower().replace("label_", "")
         score = item["score"]
         new_score = score
         
-        # 1. Targeted Risk Boost
         if triggered_category != "unknown" and adjustment > 0:
             if label == triggered_category:
-                # Direct boost for the category that was triggered by the lexicon
                 new_score = min(1.0, score + max_weight)
             elif label == "toxic":
-                # General toxic score also gets a moderate boost
                 new_score = min(1.0, score + (max_weight * 0.5))
         
-        # 2. Positive Suppression (FP Prevention)
         if adjustment < 0 and label not in ["severe_toxic", "threat"]:
-            # Reduce scores significantly if positive words are present
             new_score = max(0.0, score + adjustment)
         
         adjusted_scores.append({"label": item["label"], "score": new_score})
     
-    # Sort scores again after adjustment to find the new highest category
     adjusted_scores = sorted(adjusted_scores, key=lambda x: x["score"], reverse=True)
     return adjusted_scores, summary
 
@@ -214,9 +199,7 @@ def classify_text(text: str):
     with st.spinner("🔍 Analyzing text with **Hybrid AI**..."):
         time.sleep(0.3)
         try:
-            # Step 1: Get raw BERT scores
             bert_scores = classifier(text)[0]
-            # Step 2: Apply Lexicon adjustments
             adjusted_scores, summary = get_lexicon_score_adjustment(text, bert_scores)
             return adjusted_scores, summary
         except Exception as e:
@@ -231,7 +214,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for the stylish, dark, animated theme
+# Custom CSS for dark theme with animated background
 st.markdown("""
 <style>
     @keyframes gradient-animation {
@@ -267,7 +250,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Custom Altair Theme for dark mode visibility
+# Custom Altair Theme for dark mode
 def dark_theme():
     return {
         "config": {
@@ -292,19 +275,18 @@ st.markdown(f"""
 <i>We are here to help.</i> (Min: **{MIN_CHARACTERS}** chars | Max: **{MAX_CHARACTERS}** chars)</p>
 """, unsafe_allow_html=True)
 
-# Session State for controlled text input
+# Session State
 if 'user_text_area' not in st.session_state:
     st.session_state.user_text_area = ""
 
 def set_sample_text():
-    """Callback to set a random sample text in session state for quick testing."""
     sample_text = random.choice(SAMPLE_TEXTS)
     st.session_state.user_text_area = sample_text
 
 def clear_text():
     st.session_state.user_text_area = ""
 
-# Input Text Area
+# Input
 user_text = st.text_area(
     f"🔹 **Message to Analyze** (Min {MIN_CHARACTERS} / Max {MAX_CHARACTERS} characters):",
     value=st.session_state.user_text_area,
@@ -314,21 +296,18 @@ user_text = st.text_area(
     help=f"Enter text between {MIN_CHARACTERS} and {MAX_CHARACTERS} characters"
 )
 
-# Control Buttons
 col1, col2 = st.columns([1, 3])
 with col1:
     st.button("📌 **Try Sample Text**", use_container_width=True, on_click=set_sample_text)
 with col2:
     st.button("🗑️ **Clear Text**", use_container_width=True, on_click=clear_text)
 
-# --- Analysis & Output ---
+# Analysis
 scores, summary = classify_text(user_text)
 
 if scores and summary:
     status_title, safety_message, status_color = get_safety_message(scores, summary)
     st.markdown("---")
-    
-    # Final Status Message based on Hybrid Score
     st.subheader(f"✨ **Analysis Result: {status_title}**")
     
     if status_color == "error":
@@ -342,10 +321,9 @@ if scores and summary:
     st.markdown("### 📊 Detailed Toxicity Breakdown (Hybrid Score)")
     st.caption("Scores are **augmented** by the Lexicon Engine for enhanced detection.")
 
-    # Data Preparation for Altair Visualization
+    # Visualization
     data = []
     for item in scores:
-        # Only show scores above 5% threshold for cleaner chart
         if item["score"] > 0.05:
             data.append({
                 "Category": map_label_to_category(item["label"]),
@@ -358,16 +336,14 @@ if scores and summary:
     if df.empty:
         st.info("📊 **No Toxicity Detected:** All risk scores below 5% threshold.")
     else:
-        # Altair Bar Chart
         chart = alt.Chart(df).mark_bar().encode(
             x=alt.X("Confidence", title="Augmented Confidence (%)", axis=alt.Axis(format=".1f")),
             y=alt.Y("Category", sort=alt.EncodingSortField(field="Confidence", op="max", order="descending"), title="Toxicity Category"),
             tooltip=["Category", "Confidence"],
-            # Custom color scale to visually map risk levels
             color=alt.Color("Score", 
                 scale=alt.Scale(
                     domain=[0.0, 0.3, 0.6, 1.0],
-                    range=['#00BFFF', '#FFD700', '#FF4C4C', '#8B0000']
+                    range=['#42a5f5', '#ffa726', '#ef5350', '#c62828']
                 ),
                 legend=None
             )
@@ -377,13 +353,9 @@ if scores and summary:
 
         st.altair_chart(chart, use_container_width=True)
     
-    # Lexicon Summary Report
+    # Lexicon Summary - FIXED VERSION
     if summary.get("detected_words"):
         st.markdown("#### 🔬 **Lexicon Engine Report**")
-        
-        # Calculate totals for metrics
-        total_risk = sum(1 for word in summary["detected_words"] if LEXICON_RISK[summary["triggered_category"].upper()]["weight"] > 0)
-        total_positive = sum(1 for word in summary["detected_words"] if LEXICON_RISK["POSITIVE"]["weight"] < 0)
         
         col_neg, col_pos = st.columns(2)
         with col_neg:
@@ -391,14 +363,14 @@ if scores and summary:
             trigger_display = triggered_cat.replace('_', ' ').title() if triggered_cat != 'unknown' else "N/A"
             st.metric(
                 label="Risk Words Detected", 
-                value=total_risk,
-                delta=f"Highest Category: {trigger_display}"
+                value=summary.get("risk_word_count", 0),
+                delta=f"Category: {trigger_display}"
             )
         with col_pos:
             st.metric(
                 label="Positive Words (FP Suppression)", 
-                value=total_positive,
-                delta=f"Total Adjustment: {round(summary.get('total_adjustment', 0), 3)}"
+                value=summary.get("positive_word_count", 0),
+                delta=f"Adjustment: {round(summary.get('total_adjustment', 0), 3)}"
             )
         
         with st.expander("🔍 View Detected Keywords"):
@@ -407,7 +379,6 @@ if scores and summary:
     st.markdown("---")
     st.markdown("### 🧭 **Immediate Recommended Actions**")
     
-    # Action Panel - Based on the output strategy
     if status_color in ["error", "warning"]:
         st.error("⚠️ **Protect yourself immediately:**")
         st.markdown("""
@@ -425,7 +396,7 @@ if scores and summary:
 else:
     st.info(f"💡 **Welcome to Project SHIELD.** Enter a message above (minimum **{MIN_CHARACTERS}** characters) to begin analysis.")
 
-# Sidebar Content
+# Sidebar
 st.sidebar.title("ℹ️ **About Project SHIELD**")
 st.sidebar.markdown("""
 <p style='color: #f0f0f0;'><b>Project SHIELD 3.0</b> (Safe Harassment & Intimidation Elimination using Learning-based Detection) is your <b>Digital Guardian</b>.</p>
